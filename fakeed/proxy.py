@@ -117,7 +117,7 @@ class ProxyHandler(tornado.web.RequestHandler):
                     downloaded = b''.join(downloaded)
                     downloaded = int(downloaded)
                     saved_uploaded = self.hashCache.get(info_hash) or 0
-                    download_based = int(downloaded * self.ratio * (1 + random.randint(1, 9)))
+                    download_based = int(downloaded * self.ratio + random.randint(1, 333))
                     uploaded_trick = max(uploaded, download_based, saved_uploaded)
                     logger.debug("new Up is %s", uploaded_trick)
                     self.hashCache.set(info_hash, uploaded_trick)
