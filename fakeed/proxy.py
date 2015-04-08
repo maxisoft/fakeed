@@ -31,13 +31,11 @@ import sys
 import socket
 from urllib.parse import urlparse
 
-import random
 import tornado.httpserver
 import tornado.ioloop
 import tornado.iostream
 import tornado.web
 import tornado.httpclient
-from werkzeug.contrib.cache import SimpleCache
 
 logger = logging.getLogger('tornado_proxy')
 
@@ -72,8 +70,8 @@ def fetch_request(url, callback, **kwargs):
 
 class ProxyHandler(tornado.web.RequestHandler):
     SUPPORTED_METHODS = ['GET', 'POST', 'CONNECT']
-    hashCache = SimpleCache(default_timeout=300)
     ratio = 1.66
+    bitmask = 0b1010011
 
     @tornado.web.asynchronous
     def get(self):
@@ -106,7 +104,6 @@ class ProxyHandler(tornado.web.RequestHandler):
             # vodoo magic begin here
             info_hash = self.request.arguments.get('info_hash')
             if info_hash is not None:  # assume this is a torrent tracker's announce
-                info_hash = b''.join(info_hash)
                 downloaded = self.request.arguments.get('downloaded')
                 uploaded = self.request.arguments.get('uploaded')
                 if downloaded is not None and uploaded is not None:
@@ -115,13 +112,11 @@ class ProxyHandler(tornado.web.RequestHandler):
                     uploaded = int(uploaded)
                     downloaded = b''.join(downloaded)
                     downloaded = int(downloaded)
-                    saved_uploaded = self.hashCache.get(info_hash) or 0
-                    download_based = int(downloaded * self.ratio + random.randint(1, 333))
-                    uploaded_trick = max(uploaded, download_based, saved_uploaded)
+                    download_based = int(downloaded * self.ratio + (downloaded & self.bitmask))
+                    uploaded_trick = max(uploaded, download_based)
                     logger.debug("new Up is %s", uploaded_trick)
-                    self.hashCache.set(info_hash, uploaded_trick)
                     # let's replace uploaded into uri
-                    uri = str(uri).replace('uploaded=%d' % uploaded, 'uploaded=%d' % uploaded_trick)
+                    uri = uri.replace('uploaded=%d' % uploaded, 'uploaded=%d' % uploaded_trick)
             # vodoo magic end here
 
             fetch_request(
