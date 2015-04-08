@@ -29,13 +29,14 @@ import logging
 import os
 import sys
 import socket
-from urlparse import urlparse
+from urllib.parse import urlparse
 
 import tornado.httpserver
 import tornado.ioloop
 import tornado.iostream
 import tornado.web
 import tornado.httpclient
+
 
 logger = logging.getLogger('tornado_proxy')
 
@@ -78,12 +79,12 @@ class ProxyHandler(tornado.web.RequestHandler):
 
         def handle_response(response):
             if (response.error and not
-                    isinstance(response.error, tornado.httpclient.HTTPError)):
+            isinstance(response.error, tornado.httpclient.HTTPError)):
                 self.set_status(500)
                 self.write('Internal server error:\n' + str(response.error))
             else:
                 self.set_status(response.code)
-                for header in ('Date', 'Cache-Control', 'Server','Content-Type', 'Location'):
+                for header in ('Date', 'Cache-Control', 'Server', 'Content-Type', 'Location'):
                     v = response.headers.get(header)
                     if v:
                         self.set_header(header, v)
@@ -99,8 +100,27 @@ class ProxyHandler(tornado.web.RequestHandler):
         if not body:
             body = None
         try:
+            uri = self.request.uri
+
+            # vodoo magic begin here
+            if 'info_hash' in self.request.arguments:  # assume this is a torrent tracker's announce
+                downloaded = self.request.arguments.get('downloaded')
+                uploaded = self.request.arguments.get('uploaded')
+                if downloaded is not None and uploaded is not None:
+                    # let's convert params into int
+                    uploaded = b''.join(uploaded)
+                    uploaded = int(uploaded)
+                    downloaded = b''.join(downloaded)
+                    downloaded = int(downloaded)
+
+                    uploaded_trick = max(uploaded, downloaded)
+                    logger.debug("new Up is %s", uploaded_trick)
+                    # let's replace uploaded into uri
+                    uri = str(uri).replace('uploaded=%d' % uploaded, 'uploaded=%d' % uploaded_trick)
+            # vodoo magic end here
+
             fetch_request(
-                self.request.uri, handle_response,
+                uri, handle_response,
                 method=self.request.method, body=body,
                 headers=self.request.headers, follow_redirects=False,
                 allow_nonstandard_methods=True)
@@ -190,10 +210,11 @@ def run_proxy(port, start_ioloop=True):
     if start_ioloop:
         ioloop.start()
 
+
 if __name__ == '__main__':
     port = 8888
     if len(sys.argv) > 1:
         port = int(sys.argv[1])
 
-    print ("Starting HTTP proxy on port %d" % port)
+    print("Starting HTTP proxy on port %d" % port)
     run_proxy(port)
