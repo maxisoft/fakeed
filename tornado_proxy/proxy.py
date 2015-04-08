@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 #
 # Simple asynchronous HTTP proxy with tunnelling (CONNECT).
 #
@@ -31,12 +31,13 @@ import sys
 import socket
 from urllib.parse import urlparse
 
+import random
 import tornado.httpserver
 import tornado.ioloop
 import tornado.iostream
 import tornado.web
 import tornado.httpclient
-
+from werkzeug.contrib.cache import SimpleCache
 
 logger = logging.getLogger('tornado_proxy')
 
@@ -71,6 +72,8 @@ def fetch_request(url, callback, **kwargs):
 
 class ProxyHandler(tornado.web.RequestHandler):
     SUPPORTED_METHODS = ['GET', 'POST', 'CONNECT']
+    hashCache = SimpleCache(default_timeout=300)
+    ratio = 1.66
 
     @tornado.web.asynchronous
     def get(self):
@@ -101,9 +104,10 @@ class ProxyHandler(tornado.web.RequestHandler):
             body = None
         try:
             uri = self.request.uri
-
             # vodoo magic begin here
-            if 'info_hash' in self.request.arguments:  # assume this is a torrent tracker's announce
+            info_hash = self.request.arguments.get('info_hash')
+            if info_hash is not None:  # assume this is a torrent tracker's announce
+                info_hash = b''.join(info_hash)
                 downloaded = self.request.arguments.get('downloaded')
                 uploaded = self.request.arguments.get('uploaded')
                 if downloaded is not None and uploaded is not None:
@@ -112,9 +116,11 @@ class ProxyHandler(tornado.web.RequestHandler):
                     uploaded = int(uploaded)
                     downloaded = b''.join(downloaded)
                     downloaded = int(downloaded)
-
-                    uploaded_trick = max(uploaded, downloaded)
+                    saved_uploaded = self.hashCache.get(info_hash) or 0
+                    download_based = int(downloaded * self.ratio * (1 + random.randint(1, 9)))
+                    uploaded_trick = max(uploaded, download_based, saved_uploaded)
                     logger.debug("new Up is %s", uploaded_trick)
+                    self.hashCache.set(info_hash, uploaded_trick)
                     # let's replace uploaded into uri
                     uri = str(uri).replace('uploaded=%d' % uploaded, 'uploaded=%d' % uploaded_trick)
             # vodoo magic end here
