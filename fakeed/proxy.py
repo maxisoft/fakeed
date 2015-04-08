@@ -218,7 +218,8 @@ def run_proxy(port, start_ioloop=True):
 
 
 if __name__ == '__main__':
-    port = 8888
+    port = os.environ.get('FAKEED_PORT')
+    port = int(port) if port else 8888
     if len(sys.argv) > 1:
         port = int(sys.argv[1])
 
