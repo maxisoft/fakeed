@@ -30,14 +30,22 @@ import os
 import sys
 import socket
 from urllib.parse import urlparse
+from datetime import datetime, timedelta
 
 import tornado.httpserver
 import tornado.ioloop
 import tornado.iostream
 import tornado.web
 import tornado.httpclient
+import random
 
+from SqlTool import Row, Connection
+
+FAKEED_DIR = os.path.expanduser('~/.fakeed')
+FAKEED_SQLITE_FILE = 'db.sqlite'
 logger = logging.getLogger('tornado_proxy')
+
+#logger.setLevel(logging.DEBUG)
 
 __all__ = ['ProxyHandler', 'run_proxy']
 
@@ -68,10 +76,251 @@ def fetch_request(url, callback, **kwargs):
     client.fetch(req, callback)
 
 
+class Torrent(Row):
+    @property
+    def id(self) -> int:
+        return self.get('id')
+
+    @property
+    def info_hash(self) -> bytes:
+        return self.get('info_hash')
+
+    @info_hash.setter
+    def info_hash(self, value: bytes):
+        self['info_hash'] = value
+
+    @property
+    def peer_id(self) -> bytes:
+        return self.get('peer_id')
+
+    @peer_id.setter
+    def peer_id(self, value: bytes):
+        self['peer_id'] = value
+
+    @property
+    def netloc(self) -> str:
+        return self.get('netloc')
+
+    @netloc.setter
+    def netloc(self, value : str):
+        self['netloc'] = value
+
+    @property
+    def uploaded(self) -> int:
+        return self.get('uploaded', 0)
+
+    @uploaded.setter
+    def uploaded(self, value: int):
+        if not isinstance(value, int):
+            raise Exception('bad argument')
+        self['uploaded'] = value
+
+    @property
+    def downloaded(self) -> int:
+        return self.get('downloaded', 0)
+
+    @downloaded.setter
+    def downloaded(self, value: int):
+        if not isinstance(value, int):
+            raise Exception('bad argument')
+        self['downloaded'] = value
+
+    @property
+    def left(self) -> int:
+        return self.get('left', 0)
+
+    @left.setter
+    def left(self, value: int):
+        if not isinstance(value, int):
+            raise Exception('bad argument')
+        self['left'] = value
+
+    @property
+    def fake_uploaded(self) -> int:
+        return self.get('fake_uploaded', 0)
+
+    @fake_uploaded.setter
+    def fake_uploaded(self, value: int):
+        if not isinstance(value, int):
+            raise Exception('bad argument')
+        self['fake_uploaded'] = value
+
+    @property
+    def fake_downloaded(self) -> int:
+        return self.get('fake_downloaded', 0)
+
+    @fake_downloaded.setter
+    def fake_downloaded(self, value: int):
+        self['fake_downloaded'] = value
+
+    @property
+    def fake_left(self) -> int:
+        return self.get('fake_left', 0)
+
+    @fake_left.setter
+    def fake_left(self, value: int):
+        if not isinstance(value, int):
+            raise Exception('bad argument')
+        self['fake_left'] = value
+
+    @property
+    def ip(self) -> str:
+        return self.get('ip')
+
+    @ip.setter
+    def ip(self, value: str):
+        self['ip'] = value
+
+    @property
+    def event(self) -> str:
+        return self.get('event')
+
+    @event.setter
+    def event(self, value: str):
+        self['event'] = value
+
+    @property
+    def update_date(self) -> datetime:
+        return self.get('update_date')
+
+    @property
+    def tracker_date(self) -> datetime:
+        date = self.get('tracker_date')
+        if date is None:
+            date = datetime.now()
+            self.tracker_date = date
+        return date
+
+    @tracker_date.setter
+    def tracker_date(self, value: datetime):
+        self['tracker_date'] = value
+
+
+
+class TorrentDBConnection(Connection):
+    def __init__(self, filename, isolation_level=None):
+        super().__init__(filename, isolation_level)
+
+    def query(self, query, *parameters, cls=Torrent):
+        return super().query(query, *parameters, cls=cls)
+
+    def get(self, torrent_id: int) -> Torrent:
+        if isinstance(torrent_id, Torrent):
+            torrent_id = torrent_id.id
+        if torrent_id is None or not isinstance(torrent_id, int):
+            return None
+        for result in self.query('SELECT * FROM torrent WHERE id = ?', torrent_id):
+            return result
+
+    def getOrCreate(self, info_hash: bytes, peer_id: bytes, netloc: str) -> Torrent:
+        for result in self.query('SELECT * FROM torrent WHERE info_hash = ? AND peer_id = ? AND netloc = ?',
+                                 info_hash,
+                                 peer_id,
+                                 netloc):
+            return result
+        else:
+            ret = Torrent()
+            ret.info_hash = info_hash
+            ret.peer_id = peer_id
+            ret.netloc = netloc
+            ret.tracker_date = datetime.now()
+            return ret
+
+    def save(self, torrent: Torrent):
+        keys = torrent.keys()
+        keys = [e for e in keys if e != 'id']
+        query = 'INSERT INTO torrent('
+        query += ', '.join(keys)
+        query += ') '
+        query += 'VALUES ('
+        query += ', '.join(map(lambda key: '?', keys))
+        query += ');'
+        res = self.execute(query, *map(lambda k: torrent[k], keys))
+        if isinstance(res, int):
+            return self.get(res)
+
+    def update(self, torrent: Torrent):
+        if torrent is None or not isinstance(torrent.id, int):
+            raise Exception("illegal argument")
+        keys = torrent.keys()
+        keys = [e for e in keys if e != 'id']
+        query = 'UPDATE torrent SET '
+        query += ', '.join(map(lambda t: '{0} = ?'.format(t), keys))
+        query += ' WHERE id = %d' % torrent.id
+        return self.execute(query, *map(lambda k: torrent[k], keys))
+
+    def last_tracker_date(self, peer_id: bytes, netloc: str) -> datetime:
+        query = "SELECT torrent.tracker_date as d " \
+                "FROM torrent " \
+                "WHERE tracker_date = " \
+                "(SELECT MAX(t.tracker_date) FROM torrent as t WHERE t.peer_id = ? AND t.netloc = ?) LIMIT 1;"
+        res = self.query(query, peer_id, netloc)
+        if res:
+            for result in res:
+                return result['d']
+        return datetime.now()
+
+
+
+
+config = {
+    'GLOBAL_MAX_UPLOAD': 200,  # limit the upload bandwidth in kByte / s; set it to -1 to disable
+    'CONSTANT_UPLOAD': 110,  # simulate a constant upload at this speed
+    'MIN_RATIO': 0.75,  # the minimum ratio at any time (except if limited by GLOBAL_MAX_UPLOAD)
+    'UPLOAD_FACTOR': 3.5  # multiply real uploaded bytes by this factor. (except if limited by GLOBAL_MAX_UPLOAD)
+}
+
+
+class UploadCalculator(object):
+    """Compute an upload rate according to current date and config provided"""
+    def __init__(self, db: TorrentDBConnection, config: dict):
+        self.db = db
+        self.config = config
+
+    def __call__(self, torrent: Torrent, downloaded: int, uploaded: int) -> int:
+        now = datetime.now()
+        trackerdate = self.db.last_tracker_date(torrent.peer_id, torrent.netloc)
+        timediff = now - trackerdate
+        if trackerdate >= now or timediff > timedelta(days=1):  # seems a bad trackerdate
+            return 0
+
+        upload = 0.0
+        second = timediff.total_seconds()
+        constant_upload = float(self.config.get('CONSTANT_UPLOAD', -1))
+
+        if constant_upload > 0:
+            upload += constant_upload * 1024 * second
+        min_ratio = float(self.config.get('MIN_RATIO', 0))
+        if min_ratio > 0:
+            upload += downloaded * min_ratio
+        upload_factor = float(self.config.get('UPLOAD_FACTOR', -1))
+        if upload_factor:
+            upload += uploaded * upload_factor
+        global_max_upload = float(self.config.get('GLOBAL_MAX_UPLOAD', -1))
+        if global_max_upload >= 0:
+            upload = max(upload, global_max_upload * 1024 * second)
+        return int(upload)
+
+
+
+
+
 class ProxyHandler(tornado.web.RequestHandler):
+    def __init__(self, application, request, **kwargs):
+        super().__init__(application, request, **kwargs)
+        self.db = TorrentDBConnection(os.path.join(FAKEED_DIR, FAKEED_SQLITE_FILE))
+        self.upcalc = UploadCalculator(self.db, config)
+
     SUPPORTED_METHODS = ['GET', 'POST', 'CONNECT']
-    ratio = 1.66
-    bitmask = 0b1010011
+
+
+
+    def get_byte_argument(self, name, default=tornado.web.RequestHandler._ARG_DEFAULT):
+        ret = self.request.arguments.get(name, tornado.web.RequestHandler._ARG_DEFAULT)
+        if ret is tornado.web.RequestHandler._ARG_DEFAULT:
+            return default
+        return ret[-1]
+
 
     @tornado.web.asynchronous
     def get(self):
@@ -101,20 +350,42 @@ class ProxyHandler(tornado.web.RequestHandler):
             body = None
         try:
             uri = self.request.uri
+            logger.debug(self.request)
             # vodoo magic begin here
             info_hash = self.request.arguments.get('info_hash')
             if info_hash is not None:  # assume this is a torrent tracker's announce
-                downloaded = self.request.arguments.get('downloaded')
-                uploaded = self.request.arguments.get('uploaded')
+                netloc = urlparse(self.request.uri).netloc
+                downloaded = self.get_argument('downloaded', None)
+                uploaded = self.get_argument('uploaded', None)
                 if downloaded is not None and uploaded is not None:
-                    # let's convert params into int
-                    uploaded = b''.join(uploaded)
+                    torrent = self.db.getOrCreate(self.get_byte_argument('info_hash'),
+                                                  self.get_byte_argument('peer_id'),
+                                                  netloc)
+
                     uploaded = int(uploaded)
-                    downloaded = b''.join(downloaded)
                     downloaded = int(downloaded)
-                    download_based = int(downloaded * self.ratio + (downloaded & self.bitmask))
-                    uploaded_trick = max(uploaded, download_based)
+
+                    tracker_date = torrent.tracker_date
+
+                    torrent.uploaded += uploaded
+                    torrent.downloaded += downloaded
+                    torrent.left = int(self.get_argument('left', 0))
+
+                    torrent.ip = self.get_argument('ipv4', None) or self.get_argument('ip', None) or torrent.ip
+                    torrent.event = self.get_argument('event', torrent.event)
+                    uploaded_calc = 0
+                    if torrent.event != 'started':
+                        uploaded_calc = self.upcalc(torrent, downloaded=downloaded, uploaded=uploaded)
+                    uploaded_trick = max(uploaded, uploaded_calc)
                     logger.debug("new Up is %s", uploaded_trick)
+
+                    # update internal database
+                    torrent.tracker_date = datetime.now()
+                    #TODO WORKER
+                    if torrent.id is None:
+                        torrent = self.db.save(torrent)
+                    else:
+                        self.db.update(torrent)
                     # let's replace uploaded into uri
                     uri = uri.replace('uploaded=%d' % uploaded, 'uploaded=%d' % uploaded_trick)
             # vodoo magic end here
@@ -210,8 +481,17 @@ def run_proxy(port, start_ioloop=True):
     if start_ioloop:
         ioloop.start()
 
+def setup():
+    if not os.path.exists(FAKEED_DIR):
+        os.mkdir(FAKEED_DIR)
+    fakeedfile = os.path.join(FAKEED_DIR, FAKEED_SQLITE_FILE)
+    if not os.path.exists(fakeedfile):
+        from create_sqlite_db import create_db
+        create_db(fakeedfile, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'torrent.sql'))
+
 
 if __name__ == '__main__':
+    setup()
     port = os.environ.get('FAKEED_PORT')
     port = int(port) if port else 8888
     if len(sys.argv) > 1:
