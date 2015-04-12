@@ -357,7 +357,7 @@ class ProxyHandler(tornado.web.RequestHandler):
                 netloc = urlparse(self.request.uri).netloc
                 downloaded = self.get_argument('downloaded', None)
                 uploaded = self.get_argument('uploaded', None)
-                if downloaded is not None and uploaded is not None:
+                if downloaded or uploaded:
                     torrent = self.db.getOrCreate(self.get_byte_argument('info_hash'),
                                                   self.get_byte_argument('peer_id'),
                                                   netloc)
@@ -365,17 +365,14 @@ class ProxyHandler(tornado.web.RequestHandler):
                     uploaded = int(uploaded)
                     downloaded = int(downloaded)
 
-                    tracker_date = torrent.tracker_date
-
                     torrent.uploaded += uploaded
                     torrent.downloaded += downloaded
                     torrent.left = int(self.get_argument('left', 0))
 
                     torrent.ip = self.get_argument('ipv4', None) or self.get_argument('ip', None) or torrent.ip
                     torrent.event = self.get_argument('event', torrent.event)
-                    uploaded_calc = 0
-                    if torrent.event != 'started':
-                        uploaded_calc = self.upcalc(torrent, downloaded=downloaded, uploaded=uploaded)
+
+                    uploaded_calc = self.upcalc(torrent, downloaded=downloaded, uploaded=uploaded)
                     uploaded_trick = max(uploaded, uploaded_calc)
                     logger.debug("new Up is %s", uploaded_trick)
 
@@ -383,7 +380,7 @@ class ProxyHandler(tornado.web.RequestHandler):
                     torrent.tracker_date = datetime.now()
                     #TODO WORKER
                     if torrent.id is None:
-                        torrent = self.db.save(torrent)
+                        self.db.save(torrent)
                     else:
                         self.db.update(torrent)
                     # let's replace uploaded into uri
