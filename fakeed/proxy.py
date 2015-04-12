@@ -29,7 +29,7 @@ import logging
 import os
 import sys
 import socket
-from urllib.parse import urlparse
+
 from datetime import datetime, timedelta
 
 import tornado.httpserver
@@ -37,7 +37,9 @@ import tornado.ioloop
 import tornado.iostream
 import tornado.web
 import tornado.httpclient
-import random
+
+
+from urllib.parse import urlparse
 
 from SqlTool import Row, Connection
 
@@ -264,9 +266,10 @@ class TorrentDBConnection(Connection):
 
 
 config = {
-    'GLOBAL_MAX_UPLOAD': 200,  # limit the upload bandwidth in kByte / s; set it to -1 to disable
+    'GLOBAL_MAX_UPLOAD': 200,  # limit the upload bandwidth in kByte / s at any time; set value to -1 to disable
     'CONSTANT_UPLOAD': 110,  # simulate a constant upload at this speed
     'MIN_RATIO': 0.75,  # the minimum ratio at any time (except if limited by GLOBAL_MAX_UPLOAD)
+    'SECURE': True,  # use MIN_RATIO and CONSTANT_UPLOAD only if there is leechers
     'UPLOAD_FACTOR': 3.5  # multiply real uploaded bytes by this factor. (except if limited by GLOBAL_MAX_UPLOAD)
 }
 
@@ -286,13 +289,16 @@ class UploadCalculator(object):
 
         upload = 0.0
         second = timediff.total_seconds()
-        constant_upload = float(self.config.get('CONSTANT_UPLOAD', -1))
 
-        if constant_upload > 0:
-            upload += constant_upload * 1024 * second
-        min_ratio = float(self.config.get('MIN_RATIO', 0))
-        if min_ratio > 0:
-            upload += downloaded * min_ratio
+        is_secure = (not self.config.get('SECURE_MIN_RATIO', True)) or uploaded
+
+        if is_secure:
+            constant_upload = float(self.config.get('CONSTANT_UPLOAD', -1))
+            if constant_upload > 0:
+                upload += constant_upload * 1024 * second
+            min_ratio = float(self.config.get('MIN_RATIO', 0))
+            if min_ratio > 0:
+                    upload += downloaded * min_ratio
         upload_factor = float(self.config.get('UPLOAD_FACTOR', -1))
         if upload_factor:
             upload += uploaded * upload_factor
@@ -355,15 +361,12 @@ class ProxyHandler(tornado.web.RequestHandler):
             info_hash = self.request.arguments.get('info_hash')
             if info_hash is not None:  # assume this is a torrent tracker's announce
                 netloc = urlparse(self.request.uri).netloc
-                downloaded = self.get_argument('downloaded', None)
-                uploaded = self.get_argument('uploaded', None)
+                downloaded = int(self.get_argument('downloaded', 0))
+                uploaded = int(self.get_argument('uploaded', 0))
                 if downloaded or uploaded:
                     torrent = self.db.getOrCreate(self.get_byte_argument('info_hash'),
                                                   self.get_byte_argument('peer_id'),
                                                   netloc)
-
-                    uploaded = int(uploaded)
-                    downloaded = int(downloaded)
 
                     torrent.uploaded += uploaded
                     torrent.downloaded += downloaded
@@ -477,6 +480,7 @@ def run_proxy(port, start_ioloop=True):
     ioloop = tornado.ioloop.IOLoop.instance()
     if start_ioloop:
         ioloop.start()
+
 
 def setup():
     if not os.path.exists(FAKEED_DIR):
