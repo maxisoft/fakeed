@@ -96,9 +96,6 @@ class ProxyHandler(tornado.web.RequestHandler):
         self.config = get_config()
         self.upcalc = UploadCalculator(self.db, self.config)
 
-
-
-
     def get_byte_argument(self, name, default=tornado.web.RequestHandler._ARG_DEFAULT):
         ret = self.request.arguments.get(name, tornado.web.RequestHandler._ARG_DEFAULT)
         if ret is tornado.web.RequestHandler._ARG_DEFAULT:
@@ -154,12 +151,14 @@ class ProxyHandler(tornado.web.RequestHandler):
                     torrent.event = self.get_argument('event', torrent.event)
 
                     uploaded_calc = self.upcalc(torrent, downloaded=downloaded, uploaded=uploaded)
+
                     uploaded_trick = max(uploaded, uploaded_calc)
-                    logger.info("replaced uploaded bytes %d with %d", uploaded, uploaded_trick)
+                    if uploaded_trick != uploaded:
+                        logger.info("replaced uploaded bytes %d with %d", uploaded, uploaded_trick)
                     torrent.fake_uploaded = uploaded_trick
 
-                    # update internal database
                     torrent.tracker_date = datetime.now()
+                    # update internal database
                     #TODO WORKER
                     if torrent.id is None:
                         self.db.save(torrent)
@@ -282,12 +281,16 @@ def setup():
         find_fakeed_file(FAKEED_SQLITE_FILE)
     except FileNotFoundError:
         from create_sqlite_db import create_db
-        import shutil
-        import ressources
         if not os.path.exists(FAKEED_HOME):
             os.mkdir(FAKEED_HOME)
         fakeedfile = os.path.join(FAKEED_HOME, FAKEED_SQLITE_FILE)
         create_db(fakeedfile, find_fakeed_file('torrent.sql'))
+    try:
+        find_fakeed_file(FAKEED_CONFIG_FILE)
+    except FileNotFoundError:
+        import ressources
+        if not os.path.exists(FAKEED_HOME):
+            os.mkdir(FAKEED_HOME)
         with open(os.path.join(FAKEED_HOME, FAKEED_CONFIG_FILE), 'w') as f:
             f.write(ressources.default_config)
 
