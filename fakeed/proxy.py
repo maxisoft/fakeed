@@ -51,6 +51,7 @@ FAKEED_HOME = os.environ.get('FAKEED_HOME') or os.path.expanduser('~/.fakeed')
 
 FAKEED_SQLITE_FILE = 'db.sqlite'
 FAKEED_CONFIG_FILE = 'config.ini'
+
 logging.basicConfig()
 logger = logging.getLogger('fakeed')
 
@@ -85,8 +86,6 @@ def fetch_request(url, callback, **kwargs):
     client.fetch(req, callback)
 
 
-
-
 class ProxyHandler(tornado.web.RequestHandler):
     SUPPORTED_METHODS = ['GET', 'POST', 'CONNECT']
 
@@ -101,7 +100,6 @@ class ProxyHandler(tornado.web.RequestHandler):
         if ret is tornado.web.RequestHandler._ARG_DEFAULT:
             return default
         return ret[-1]
-
 
     @tornado.web.asynchronous
     def get(self):
@@ -155,11 +153,12 @@ class ProxyHandler(tornado.web.RequestHandler):
                     uploaded_trick = max(uploaded, uploaded_calc)
                     if uploaded_trick != uploaded:
                         logger.info("replaced uploaded bytes %d with %d", uploaded, uploaded_trick)
-                    torrent.fake_uploaded = uploaded_trick
+                        
+                    torrent.fake_uploaded += uploaded_trick
 
                     torrent.tracker_date = datetime.now()
                     # update internal database
-                    #TODO WORKER
+                    # TODO WORKER
                     if torrent.id is None:
                         self.db.save(torrent)
                     else:
@@ -269,6 +268,7 @@ def find_fakeed_file(filename: str):
             return path
     raise FileNotFoundError('unable to find file ' + filename)
 
+
 @lru_cache(maxsize=1)
 def get_config():
     config = configparser.RawConfigParser()
@@ -281,6 +281,7 @@ def setup():
         find_fakeed_file(FAKEED_SQLITE_FILE)
     except FileNotFoundError:
         from create_sqlite_db import create_db
+
         if not os.path.exists(FAKEED_HOME):
             os.mkdir(FAKEED_HOME)
         fakeedfile = os.path.join(FAKEED_HOME, FAKEED_SQLITE_FILE)
@@ -289,11 +290,11 @@ def setup():
         find_fakeed_file(FAKEED_CONFIG_FILE)
     except FileNotFoundError:
         import ressources
+
         if not os.path.exists(FAKEED_HOME):
             os.mkdir(FAKEED_HOME)
         with open(os.path.join(FAKEED_HOME, FAKEED_CONFIG_FILE), 'w') as f:
             f.write(ressources.default_config)
-
 
 
 if __name__ == '__main__':

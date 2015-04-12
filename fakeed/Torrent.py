@@ -1,8 +1,10 @@
-__author__ = 'maxisoft'
+from datetime import datetime
 
 from SqlTool import Row
-from datetime import datetime
 from SqlTool import Connection
+
+
+__author__ = 'maxisoft'
 
 
 class Torrent(Row):
@@ -31,7 +33,7 @@ class Torrent(Row):
         return self.get('netloc')
 
     @netloc.setter
-    def netloc(self, value : str):
+    def netloc(self, value: str):
         self['netloc'] = value
 
     @property

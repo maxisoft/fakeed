@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 
-__author__ = 'maxisoft'
 import sqlite3
+
+__author__ = 'maxisoft'
 
 DEFAULT_FAKEED_SQLITE_PATH = 'db.sqlite'
 

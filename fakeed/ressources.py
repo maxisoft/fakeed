@@ -1,4 +1,4 @@
-__author__ = 'maxime'
+__author__ = 'maxisoft'
 
 default_config = '''[DEFAULT]
 # limit the upload bandwidth in kByte / s at any time; set value to -1 to disable.
