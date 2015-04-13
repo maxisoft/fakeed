@@ -86,14 +86,44 @@ def fetch_request(url, callback, **kwargs):
     client.fetch(req, callback)
 
 
+@lru_cache(maxsize=12)
+def find_fakeed_file(filename: str):
+    dirs = (FAKEED_HOME, '/etc/fakeed', os.getcwd(), os.path.dirname(os.path.abspath(__file__)))
+    for d in dirs:
+        path = os.path.join(d, filename)
+        if os.path.exists(path):
+            return path
+    raise FileNotFoundError('unable to find file ' + filename)
+
+
+def get_config():
+    config = configparser.RawConfigParser()
+    config_file = find_fakeed_file(FAKEED_CONFIG_FILE)
+    logger.info('opening config file "%s"', config_file)
+    config.read(config_file)
+    return config
+
+
 class ProxyHandler(tornado.web.RequestHandler):
     SUPPORTED_METHODS = ['GET', 'POST', 'CONNECT']
+    config = get_config()
 
     def __init__(self, application, request, **kwargs):
         super().__init__(application, request, **kwargs)
-        self.db = TorrentDBConnection(find_fakeed_file(FAKEED_SQLITE_FILE))
-        self.config = get_config()
-        self.upcalc = UploadCalculator(self.db, self.config)
+        self._db = None
+        self._upcalc = None
+
+    @property
+    def db(self):
+        if self._db is None:
+            self._db = TorrentDBConnection(find_fakeed_file(FAKEED_SQLITE_FILE))
+        return self._db
+
+    @property
+    def upcalc(self):
+        if self._upcalc is None:
+             self._upcalc = UploadCalculator(self.db, self.config)
+        return self._upcalc
 
     def get_byte_argument(self, name, default=tornado.web.RequestHandler._ARG_DEFAULT):
         ret = self.request.arguments.get(name, tornado.web.RequestHandler._ARG_DEFAULT)
@@ -261,23 +291,7 @@ def run_proxy(port, start_ioloop=True):
         ioloop.start()
 
 
-@lru_cache(maxsize=12)
-def find_fakeed_file(filename: str):
-    dirs = (FAKEED_HOME, '/etc/fakeed', os.getcwd(), os.path.dirname(os.path.abspath(__file__)))
-    for d in dirs:
-        path = os.path.join(d, filename)
-        if os.path.exists(path):
-            return path
-    raise FileNotFoundError('unable to find file ' + filename)
 
-
-@lru_cache(maxsize=1)
-def get_config():
-    config = configparser.RawConfigParser()
-    config_file = find_fakeed_file(FAKEED_CONFIG_FILE)
-    logger.info('opening config file "%s"', config_file)
-    config.read(config_file)
-    return config
 
 
 def setup():
