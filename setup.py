@@ -11,6 +11,6 @@ setup(
     url='https://github.com/maxisoft/fakeed',
     author='maxisoft',
     author_email='maxisoft@youpy.tk',
-    install_requires=['tornado', 'pyyaml'],
+    install_requires=['tornado'],
     packages=['fakeed'],
 )

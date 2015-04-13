@@ -55,7 +55,7 @@ FAKEED_CONFIG_FILE = 'config.ini'
 logging.basicConfig()
 logger = logging.getLogger('fakeed')
 
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 
 __all__ = ['ProxyHandler', 'run_proxy']
 
@@ -148,12 +148,12 @@ class ProxyHandler(tornado.web.RequestHandler):
                     torrent.ip = self.get_argument('ipv4', None) or self.get_argument('ip', None) or torrent.ip
                     torrent.event = self.get_argument('event', torrent.event)
 
-                    uploaded_calc = self.upcalc(torrent, downloaded=downloaded, uploaded=uploaded)
+                    uploaded_calc = self.upcalc(torrent, downloaded=downloaded, uploaded=uploaded) or 0
 
                     uploaded_trick = max(uploaded, uploaded_calc)
-                    if uploaded_trick != uploaded:
-                        logger.info("replaced uploaded bytes %d with %d", uploaded, uploaded_trick)
-                        
+
+                    if torrent.fake_uploaded is None:
+                        torrent.fake_uploaded = 0
                     torrent.fake_uploaded += uploaded_trick
 
                     torrent.tracker_date = datetime.now()
@@ -164,7 +164,9 @@ class ProxyHandler(tornado.web.RequestHandler):
                     else:
                         self.db.update(torrent)
                     # let's replace uploaded into uri
-                    uri = uri.replace('uploaded=%d' % uploaded, 'uploaded=%d' % uploaded_trick)
+                    if uploaded_trick != uploaded:
+                        logger.info("replaced uploaded bytes %d with %d", uploaded, uploaded_trick)
+                        uri = uri.replace('uploaded=%d' % uploaded, 'uploaded=%d' % uploaded_trick)
             # vodoo magic end here
 
             fetch_request(
@@ -272,7 +274,9 @@ def find_fakeed_file(filename: str):
 @lru_cache(maxsize=1)
 def get_config():
     config = configparser.RawConfigParser()
-    config.read(find_fakeed_file(FAKEED_CONFIG_FILE))
+    config_file = find_fakeed_file(FAKEED_CONFIG_FILE)
+    logger.info('opening config file "%s"', config_file)
+    config.read(config_file)
     return config
 
 
