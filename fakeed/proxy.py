@@ -37,6 +37,7 @@ import tornado.ioloop
 import tornado.iostream
 import tornado.web
 import tornado.httpclient
+import tornado.httputil
 
 from urllib.parse import urlparse
 from Torrent import TorrentDBConnection
@@ -141,7 +142,8 @@ class ProxyHandler(tornado.web.RequestHandler):
                 self.set_status(500)
                 self.write('Internal server error:\n' + str(response.error))
             else:
-                self.set_status(response.code)
+                reason = tornado.httputil.responses.get(response.code, 'unknown')
+                self.set_status(response.code, reason=reason)
                 for header in ('Date', 'Cache-Control', 'Server', 'Content-Type', 'Location'):
                     v = response.headers.get(header)
                     if v:
