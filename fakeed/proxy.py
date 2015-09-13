@@ -74,10 +74,10 @@ def parse_proxy(proxy):
 
 def fetch_request(url, callback, **kwargs):
     proxy = get_proxy(url)
+    tornado.httpclient.AsyncHTTPClient.configure(
+            'tornado.curl_httpclient.CurlAsyncHTTPClient')
     if proxy:
         logger.debug('Forward request via upstream proxy %s', proxy)
-        tornado.httpclient.AsyncHTTPClient.configure(
-            'tornado.curl_httpclient.CurlAsyncHTTPClient')
         host, port = parse_proxy(proxy)
         kwargs['proxy_host'] = host
         kwargs['proxy_port'] = port
