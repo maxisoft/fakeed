@@ -203,11 +203,13 @@ class ProxyHandler(tornado.web.RequestHandler):
                         logger.info("replaced uploaded bytes %d with %d", uploaded, uploaded_trick)
                         uri = uri.replace('uploaded=%d' % uploaded, 'uploaded=%d' % uploaded_trick)
             # vodoo magic end here
-
+            headers = self.request.headers
+            headers["Accept-Encoding"] = "deflate"
             fetch_request(
                 uri, handle_response,
                 method=self.request.method, body=body,
-                headers=self.request.headers, follow_redirects=False,
+                headers=headers, follow_redirects=False,
+                decompress_response=False,
                 allow_nonstandard_methods=True)
         except tornado.httpclient.HTTPError as e:
             if hasattr(e, 'response') and e.response:
