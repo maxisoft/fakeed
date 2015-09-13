@@ -131,6 +131,9 @@ class ProxyHandler(tornado.web.RequestHandler):
         if ret is tornado.web.RequestHandler._ARG_DEFAULT:
             return default
         return ret[-1]
+        
+    def compute_etag(self):
+        return None
 
     @tornado.web.asynchronous
     def get(self):
